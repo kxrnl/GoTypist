@@ -53,7 +53,7 @@ var (
 	actionKey     = lipgloss.NewStyle().Underline(true)
 
 	boxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#585b70")).
 			Padding(1, 2)
 )
@@ -117,7 +117,6 @@ const (
 	rowWords
 	rowDifficulty
 	rowSeparator
-	rowSettings
 	rowAbout
 	rowQuit
 	rowCount
@@ -129,9 +128,8 @@ type menuModel struct {
 	poolChoice      int
 	textColorChoice int
 
-	start       bool
-	about       bool
-	settingPage bool
+	start bool
+	about bool
 
 	termWidth  int
 	termHeight int
@@ -169,20 +167,8 @@ func (m menuModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
 
 	if m.about {
-		if key == "esc" || key == "ctrl+c" {
+		if key == "esc" || key == "ctrl+c" || key == "space" {
 			m.about = false
-		}
-		return m, nil
-	}
-
-	if m.settingPage {
-		switch key {
-		case "esc", "ctrl+c":
-			m.settingPage = false
-		case "left", "a":
-			m.textColorChoice = wrap(m.textColorChoice-1, len(textColors))
-		case "right", "d", "enter":
-			m.textColorChoice = wrap(m.textColorChoice+1, len(textColors))
 		}
 		return m, nil
 	}
@@ -192,14 +178,21 @@ func (m menuModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
 	case "up", "w":
+		// m.row = wrap(m.row-1, rowCount)
 		m.row = wrap(m.row-1, rowCount)
+		if m.row == rowSeparator {
+			m.row = wrap(m.row-1, rowCount)
+		}
 	case "down", "s":
 		m.row = wrap(m.row+1, rowCount)
+		if m.row == rowSeparator {
+			m.row = wrap(m.row+1, rowCount)
+		}
 	case "left", "a":
 		m = m.changeSetting(-1)
 	case "right", "d":
 		m = m.changeSetting(1)
-	case "enter":
+	case "enter", "space":
 		return m.selectRow()
 	}
 	return m, nil
@@ -210,8 +203,6 @@ func (m menuModel) selectRow() (tea.Model, tea.Cmd) {
 	case rowStart:
 		m.start = true
 		return m, tea.Quit
-	case rowSettings:
-		m.settingPage = true
 	case rowAbout:
 		m.about = true
 	case rowQuit:
@@ -227,6 +218,7 @@ func (m menuModel) changeSetting(step int) menuModel {
 	switch m.row {
 	case rowWords:
 		m.countChoice = wrap(m.countChoice+step, len(wordCounts))
+
 	case rowDifficulty:
 		m.poolChoice = wrap(m.poolChoice+step, len(poolSizes))
 	}
@@ -245,24 +237,23 @@ func (m menuModel) View() tea.View {
 		})
 	}
 
-	if m.settingPage {
-		return m.pageView("Settings", keyBindsLine("[←/→]", "change", "[esc]", "back to menu"), []string{
-			fmt.Sprintf("Text Color   < %s >", textColors[m.textColorChoice]),
-		})
-	}
-
 	labels := []string{
 		"Start",
 		fmt.Sprintf("Words       < %d >", wordCounts[m.countChoice]),
 		fmt.Sprintf("Difficulty  < %s >", poolNames[m.poolChoice]),
 		"",
-		"Settings",
 		"About",
 		"Quit",
 	}
 
 	var rows []string
 	for i, label := range labels {
+		// Skip if rowSeperator then in keyHandler skip also
+		if i == rowSeparator {
+			rows = append(rows, selectedStyle.Render(""))
+			continue
+		}
+
 		if i == m.row {
 			rows = append(rows, selectedStyle.Render("> "+label))
 		} else {
@@ -358,8 +349,8 @@ func (m typingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m typingModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
+func (m typingModel) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
 	case "ctrl+c":
 		m.quitAll = true
 		return m, tea.Quit
@@ -372,10 +363,10 @@ func (m typingModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.finished() {
 		return m, nil
 	}
-	if k.String() == "backspace" {
+	if key.String() == "backspace" {
 		return m.deleteLetter(), nil
 	}
-	return m.typeLetter(k.Text), nil
+	return m.typeLetter(key.Text), nil
 }
 
 func (m typingModel) typeLetter(text string) typingModel {
@@ -530,7 +521,7 @@ func main() {
 			os.Exit(1)
 		}
 		if quitAll {
-			fmt.Println("YOU QUIT???")
+			// fmt.Println("YOU QUIT???") This is useless
 			return
 		}
 	}
