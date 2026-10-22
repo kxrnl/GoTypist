@@ -9,7 +9,7 @@
 
 	Date of Creation: October 11, 2026
 	Author: KERNL | Terence Montecillo
-	(https://github.com/kxrnl)
+	[https://github.com/kxrnl]
 
 */
 
@@ -30,26 +30,19 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Embed the wordlist
-//
 //go:embed wordlist.txt
 var embeddedWords string
 
 const maxBoxWidth = 60
 
-var (
-	horizontalPosition = lipgloss.Center
-	verticalPosition   = lipgloss.Center
-)
-
-// Avaialble difficulties
+// Menu choices
 var (
 	wordCounts = []int{10, 25, 50, 100}
 	poolSizes  = []int{200, 1000, 5000}
 	poolNames  = []string{"easy", "normal", "hard"}
+	textColors = []string{"#ababac", "#FFFFFF", "#000000"}
 )
 
-// AAAAAAA
 var (
 	correctStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#44ff33"))
 	wrongStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0048"))
@@ -57,20 +50,16 @@ var (
 	cursorStyle   = lipgloss.NewStyle().Underline(true).Foreground(lipgloss.Color("#cf9a28"))
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#377cec"))
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#56b2fd"))
+	actionKey     = lipgloss.NewStyle().Underline(true)
 
-	// Main box
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#585b70")).
 			Padding(1, 2)
-
-	actionKey = lipgloss.NewStyle().Underline(true)
-
-	test = lipgloss.NewStyle().Blink(true)
 )
 
-// View
-func helpLine(pairs ...string) string {
+// Helpers
+func keyBindsLine(pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, actionKey.Render(pairs[i])+dimStyle.Render(" "+pairs[i+1]))
@@ -80,11 +69,7 @@ func helpLine(pairs ...string) string {
 
 func centeredView(content string, width, height int) tea.View {
 	if width > 0 {
-		content = lipgloss.Place(
-			width, height,
-			horizontalPosition, verticalPosition,
-			content,
-		)
+		content = lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -94,8 +79,6 @@ func centeredView(content string, width, height int) tea.View {
 func wrap(number, size int) int {
 	return (number%size + size) % size
 }
-
-// Word list fetcher
 
 func loadWords(path string) ([]string, error) {
 	text := embeddedWords
@@ -121,29 +104,34 @@ func makeTarget(allWords []string, count int) []rune {
 	return []rune(strings.Join(picked, " "))
 }
 
-// Words generation
-type settings struct {
+// Menu
+type typingSettings struct {
 	wordCount int
 	poolSize  int
+	textColor string
 }
 
-// Adding items here also adds counts on the menu selection!
-// Thats cool!
+// Each row in the main menu adding one here adds it to the count
 const (
 	rowStart = iota
 	rowWords
 	rowDifficulty
-	rowSeperator
+	rowSeparator
+	rowSettings
 	rowAbout
 	rowQuit
 	rowCount
 )
 
 type menuModel struct {
-	row         int
-	countChoice int
-	poolChoice  int
+	row             int
+	countChoice     int
+	poolChoice      int
+	textColorChoice int
+
 	start       bool
+	about       bool
+	settingPage bool
 
 	termWidth  int
 	termHeight int
@@ -153,10 +141,11 @@ func newMenuModel() menuModel {
 	return menuModel{poolChoice: 1}
 }
 
-func (m menuModel) settings() settings {
-	return settings{
+func (m menuModel) settings() typingSettings {
+	return typingSettings{
 		wordCount: wordCounts[m.countChoice],
 		poolSize:  poolSizes[m.poolChoice],
+		textColor: textColors[m.textColorChoice],
 	}
 }
 
@@ -177,7 +166,29 @@ func (m menuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m menuModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
+	key := k.String()
+
+	if m.about {
+		if key == "esc" || key == "ctrl+c" {
+			m.about = false
+		}
+		return m, nil
+	}
+
+	if m.settingPage {
+		switch key {
+		case "esc", "ctrl+c":
+			m.settingPage = false
+		case "left", "a":
+			m.textColorChoice = wrap(m.textColorChoice-1, len(textColors))
+		case "right", "d", "enter":
+			m.textColorChoice = wrap(m.textColorChoice+1, len(textColors))
+		}
+		return m, nil
+	}
+
+	// Main menu
+	switch key {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
 	case "up", "w":
@@ -199,14 +210,16 @@ func (m menuModel) selectRow() (tea.Model, tea.Cmd) {
 	case rowStart:
 		m.start = true
 		return m, tea.Quit
+	case rowSettings:
+		m.settingPage = true
 	case rowAbout:
-		// TODO: Display about\
-		return m, tea.Quit
-
+		m.about = true
 	case rowQuit:
 		return m, tea.Quit
+	default:
+		m = m.changeSetting(1)
 	}
-	return m.changeSetting(1), nil
+	return m, nil
 }
 
 // changeSetting moves the selected row to its next or previous choice
@@ -220,62 +233,30 @@ func (m menuModel) changeSetting(step int) menuModel {
 	return m
 }
 
-func (m menuModel) ViewSettings() tea.View {
-	aboutContent := []string{
-		"Test",
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		titleStyle.Render("GoTypist // By KERNL"),
-		"",
-		boxStyle.Width(32).Render(strings.Join(aboutContent, "\n")),
-		"",
-		helpLine("[↑/↓]", "move", "[←/→]", "change", "enter", "select"),
-	)
-
-	return centeredView(content, m.termWidth, m.termHeight)
-}
-
-type aboutView struct {
-	row int
-
-	termWidth  int
-	termHeight int
-}
-
-func (m aboutView) View() tea.View {
-	labels := []string{
-		"Test",
-	}
-
-	// var rows []string
-	// for i, label := range labels {
-	// 	if i == m.row {
-	// 		rows = append(rows, selectedStyle.Render("> "+label))
-	// 	} else {
-	// 		rows = append(rows, dimStyle.Render(" "+label))
-	// 		// Double spaces is matched alignment
-	// 		// One space has a select effect (better imo)
-	// 	}
-	// }
-
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		titleStyle.Render("GoTypist // By KERNL"),
-		"",
-		boxStyle.Width(32).Render(labels[0]),
-		"",
-		helpLine("[↑/↓]", "move", "[←/→]", "change", "enter", "select"),
-	)
-	return centeredView(content, m.termWidth, m.termHeight)
-}
-
-// Menu
 func (m menuModel) View() tea.View {
+	if m.about {
+		return m.pageView("About", keyBindsLine("[esc]", "back to menu"), []string{
+			"GoTypist",
+			" typing test built and shipped for GoShip.",
+			"",
+			" Practice your speed & accuracy",
+			" right from your command line!",
+			"@kernl | Written in Go [https://go.dev]",
+		})
+	}
+
+	if m.settingPage {
+		return m.pageView("Settings", keyBindsLine("[←/→]", "change", "[esc]", "back to menu"), []string{
+			fmt.Sprintf("Text Color   < %s >", textColors[m.textColorChoice]),
+		})
+	}
+
 	labels := []string{
 		"Start",
 		fmt.Sprintf("Words       < %d >", wordCounts[m.countChoice]),
 		fmt.Sprintf("Difficulty  < %s >", poolNames[m.poolChoice]),
 		"",
+		"Settings",
 		"About",
 		"Quit",
 	}
@@ -286,8 +267,6 @@ func (m menuModel) View() tea.View {
 			rows = append(rows, selectedStyle.Render("> "+label))
 		} else {
 			rows = append(rows, dimStyle.Render(" "+label))
-			// Double spaces is matched alignment
-			// One space has a select effect (better imo)
 		}
 	}
 
@@ -296,7 +275,19 @@ func (m menuModel) View() tea.View {
 		"",
 		boxStyle.Width(32).Render(strings.Join(rows, "\n")),
 		"",
-		helpLine("[↑/↓]", "move", "[←/→]", "change", "enter", "select"),
+		keyBindsLine("[↑/↓]", "move", "[←/→]", "change", "enter", "select"),
+	)
+	return centeredView(content, m.termWidth, m.termHeight)
+}
+
+// pageView draws a sub page about and settings with a title, box and footer
+func (m menuModel) pageView(title, footer string, lines []string) tea.View {
+	content := lipgloss.JoinVertical(lipgloss.Center,
+		titleStyle.Render("GoTypist // "+title),
+		"",
+		boxStyle.Width(maxBoxWidth).Render(strings.Join(lines, "\n")),
+		"",
+		footer,
 	)
 	return centeredView(content, m.termWidth, m.termHeight)
 }
@@ -311,10 +302,11 @@ func runMenu(menu menuModel) (menuModel, error) {
 	return final.(menuModel), nil
 }
 
-// Main typing test
+// Typing test
 type typingModel struct {
 	allWords  []string
 	wordCount int
+	textColor string
 
 	target []rune
 	typed  []rune
@@ -330,28 +322,27 @@ type typingModel struct {
 	termHeight int
 }
 
-func newTypingModel(allWords []string, wordCount int) typingModel {
+func newTypingModel(allWords []string, wordCount int, textColor string) typingModel {
 	return typingModel{
 		allWords:  allWords,
 		wordCount: wordCount,
+		textColor: textColor,
 		target:    makeTarget(allWords, wordCount),
 	}
 }
 
 func (m typingModel) finished() bool {
-	// TYPED to LENGTH OF TEST
 	return len(m.typed) == len(m.target)
 }
 
 func (m typingModel) restart() typingModel {
-	fresh := newTypingModel(m.allWords, m.wordCount)
+	fresh := newTypingModel(m.allWords, m.wordCount, m.textColor)
 	fresh.termWidth = m.termWidth
 	fresh.termHeight = m.termHeight
 	return fresh
 }
 
 func (m typingModel) Init() tea.Cmd {
-	// Nothing
 	return nil
 }
 
@@ -368,22 +359,20 @@ func (m typingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m typingModel) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	name := k.String()
-
-	if name == "ctrl+c" {
+	switch k.String() {
+	case "ctrl+c":
 		m.quitAll = true
 		return m, tea.Quit
-	}
-	if name == "esc" {
+	case "esc":
 		return m, tea.Quit
-	}
-	if name == "tab" {
+	case "tab":
 		return m.restart(), nil
 	}
+
 	if m.finished() {
 		return m, nil
 	}
-	if name == "backspace" {
+	if k.String() == "backspace" {
 		return m.deleteLetter(), nil
 	}
 	return m.typeLetter(k.Text), nil
@@ -394,20 +383,16 @@ func (m typingModel) typeLetter(text string) typingModel {
 	if len(letters) != 1 {
 		return m
 	}
-	typedLetter := letters[0]
 
 	if m.startTime.IsZero() {
 		m.startTime = time.Now()
 	}
 
 	m.totalKeystrokes++
-	expectedLetter := m.target[len(m.typed)]
-	if typedLetter == expectedLetter {
+	if letters[0] == m.target[len(m.typed)] {
 		m.correctKeystrokes++
-	} else {
-		// Count errors
 	}
-	m.typed = append(m.typed, typedLetter)
+	m.typed = append(m.typed, letters[0])
 
 	if m.finished() {
 		m.endTime = time.Now()
@@ -423,27 +408,28 @@ func (m typingModel) deleteLetter() typingModel {
 }
 
 func (m typingModel) renderText() string {
-	var stringBuilder strings.Builder
+	untypedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.textColor))
+
+	var sb strings.Builder
 	for i, letter := range m.target {
 		show := string(letter)
 		alreadyTyped := i < len(m.typed)
-		isCursor := i == len(m.typed)
 
 		switch {
 		case alreadyTyped && m.typed[i] == letter:
-			stringBuilder.WriteString(correctStyle.Render(show))
+			sb.WriteString(correctStyle.Render(show))
 		case alreadyTyped:
 			if letter == ' ' {
 				show = "_"
 			}
-			stringBuilder.WriteString(wrongStyle.Render(show))
-		case isCursor:
-			stringBuilder.WriteString(cursorStyle.Render(show))
+			sb.WriteString(wrongStyle.Render(show))
+		case i == len(m.typed):
+			sb.WriteString(cursorStyle.Render(show))
 		default:
-			stringBuilder.WriteString(dimStyle.Render(show))
+			sb.WriteString(untypedStyle.Render(show))
 		}
 	}
-	return stringBuilder.String()
+	return sb.String()
 }
 
 func (m typingModel) statsText() string {
@@ -459,12 +445,12 @@ func (m typingModel) statsText() string {
 		return ""
 	}
 
-	wordPerMinute := float64(correctLetters) / 5 / minutes
+	// 5 letters is 1 word
+	wpm := float64(correctLetters) / 5 / minutes
 	accuracy := float64(m.correctKeystrokes) / float64(m.totalKeystrokes) * 100
-	return fmt.Sprintf("Words per Minute: %.0f  Accuracy: %.1f%%", wordPerMinute, accuracy)
+	return fmt.Sprintf("Words per Minute: %.0f  Accuracy: %.1f%%", wpm, accuracy)
 }
 
-// Typing View
 func (m typingModel) View() tea.View {
 	boxWidth := maxBoxWidth
 	if m.termWidth > 0 && m.termWidth-2 < boxWidth {
@@ -479,16 +465,16 @@ func (m typingModel) View() tea.View {
 	if m.finished() {
 		lines = append(lines, "", m.statsText())
 	}
-	lines = append(lines, "", helpLine("[tab]", "new test / restart", "[esc]", "back to menu"))
+	lines = append(lines, "", keyBindsLine("[tab]", "new test / restart", "[esc]", "back to menu"))
 
 	content := lipgloss.JoinVertical(lipgloss.Center, lines...)
 	return centeredView(content, m.termWidth, m.termHeight)
 }
 
-// runTyping runs one test and aks if the user wants to quit
-func runTyping(allWords []string, s settings) (bool, error) {
+// runTyping runs one test and reports if the user wants to quit everything
+func runTyping(allWords []string, s typingSettings) (bool, error) {
 	pool := allWords[:min(s.poolSize, len(allWords))]
-	final, err := tea.NewProgram(newTypingModel(pool, s.wordCount)).Run()
+	final, err := tea.NewProgram(newTypingModel(pool, s.wordCount, s.textColor)).Run()
 	if err != nil {
 		return false, err
 	}
@@ -511,20 +497,16 @@ func printHelp() {
 	fmt.Fprintln(out, "  typing  tab new/restart test, esc menu, ctrl+c quit")
 }
 
-// You made it down here
 func main() {
-	// path := flag.String("wl", "wordlist.txt", "custom wordlist file")
 	path := flag.String("words", "", "word list file (default: built-in list)")
 	flag.Usage = printHelp
 	flag.Parse()
 
-	// Help
 	if flag.Arg(0) == "help" {
 		printHelp()
 		return
 	}
 
-	// No wordlist check
 	allWords, err := loadWords(*path)
 	if err != nil {
 		fmt.Println(err)
@@ -548,7 +530,7 @@ func main() {
 			os.Exit(1)
 		}
 		if quitAll {
-			fmt.Printf("YOU QUIT???")
+			fmt.Println("YOU QUIT???")
 			return
 		}
 	}
